@@ -16,6 +16,9 @@ Cargar el archivo que se ecuentra en la carpeta Prueba Tecnica 2 pruebascript-49
 cargar en:
 <img width="485" height="397" alt="image" src="https://github.com/user-attachments/assets/356e6fc4-7aa9-4d11-bb5f-4ceb4c3a3f89" />
 
+Archivos Prueba Tecnica 2
+https://drive.google.com/drive/folders/15dkw5IGe3m_98eenTcitH5BR-d_fEhAv?usp=sharing
+
 Paso 4
 Ejecutar la prueba tecnica dando run all en Google colab
 <img width="149" height="52" alt="image" src="https://github.com/user-attachments/assets/13ffd66f-a212-4974-8330-81733edb3085" />
