@@ -1,0 +1,311 @@
+Aspirante: Thomas Edmundo Martinez Mejia
+Prueba: Tecnica 2 python
+
+# =========================================================
+# Primero Instalamos las dependencia (EJECUTAR PRIMERO)
+# =========================================================
+
+!pip install pdfplumber pytesseract pillow gspread google-auth python-dateutil pdf2image
+!apt-get install -y tesseract-ocr
+!apt-get install -y poppler-utils
+
+
+# =========================================================
+# Esta herramienta file permite subir los arcchivos desde mi computadora
+# =========================================================
+
+from google.colab import files
+
+print("Sube tus facturas PDF / JPG / PNG")
+uploaded = files.upload()
+
+uploaded_files = list(uploaded.keys())
+
+
+# =========================================================
+# Este bloque nos sirve para implementar todas las librerias necesarias
+# =========================================================
+
+import os
+import re
+import pdfplumber
+import pytesseract
+from pdf2image import convert_from_path
+from PIL import Image
+from datetime import datetime
+from dateutil.parser import parse
+import gspread
+from google.oauth2.service_account import Credentials
+
+
+# =========================================================
+# Este bloque sirve para configurar el sistema antes de conectarse con Google Sheets.
+# =========================================================
+
+LOG_FILE = "log_procesamiento.txt"
+
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive"
+]
+
+
+# =========================================================
+# Esto funcione para conectarse a google sheets
+# =========================================================
+
+creds = Credentials.from_service_account_file(
+    "/content/sample_data/pruebascript-494616-289ef03fc2c4.json",
+    scopes=SCOPES
+)
+
+client = gspread.authorize(creds)
+sheet = client.open("facturas").sheet1
+
+
+# =========================================================
+# Este bloque es para ver los errores
+# =========================================================
+
+def log_error(msg):
+    with open(LOG_FILE, "a") as f:
+        f.write(msg + "\n")
+
+
+# =========================================================
+# Este bloque extrae todos los datos de la factura en PDF Y JPG PNG
+# =========================================================
+
+def extract_text(file_path):
+    text = ""
+
+    if file_path.lower().endswith(".pdf"):
+
+        with pdfplumber.open(file_path) as pdf:
+            for page in pdf.pages:
+                text += page.extract_text() or ""
+
+        if not text.strip():
+            print("PDF escaneado detectado → usando OCR...")
+
+            try:
+                pages = convert_from_path(file_path)
+
+                for page in pages:
+                    text += pytesseract.image_to_string(page)
+
+            except Exception as e:
+                print(f"Error usando OCR en PDF: {str(e)}")
+                log_error(f"Error OCR PDF {file_path}: {str(e)}")
+
+        return text
+
+    else:
+        img = Image.open(file_path)
+        return pytesseract.image_to_string(img)
+
+
+# =========================================================
+# Este bloque ayuda extraer datos y mejora la fuente
+# =========================================================
+
+def extract_data(text):
+
+    patrones_fecha = [
+        r"\d{2}/\d{2}/\d{4}",
+        r"\d{4}-\d{2}-\d{2}",
+        r"\d{2}-\d{2}-\d{4}"
+    ]
+
+    fecha = ""
+
+    for patron in patrones_fecha:
+        match = re.search(patron, text)
+        if match:
+            fecha = match.group(0)
+            break
+
+
+    # =========================
+    # NÚMERO DE FACTURA (MEJORADO)
+    # =========================
+    patrones_numero = [
+        r"Factura\s*No\.?:?\s*([A-Z0-9\-]+)",
+        r"Factura\s*N[o°º#]?\s*:?\s*([A-Z0-9\-]+)",
+        r"Invoice\s*Number\s*:?\s*([A-Z0-9\-]+)",
+        r"Folio\s*Fiscal\s*:?\s*([A-Z0-9\-]+)"
+    ]
+
+    numero = ""
+
+    for patron in patrones_numero:
+        match = re.search(patron, text, re.IGNORECASE)
+        if match:
+            numero = match.group(1).strip()
+            break
+
+
+    proveedor = re.search(
+        r"Proveedor:\s*(.+)",
+        text,
+        re.IGNORECASE
+    )
+
+    proveedor_final = ""
+
+    if proveedor:
+        proveedor_final = proveedor.group(1).strip()
+
+
+    patrones_total = [
+        r"Total:?\s*\$?\s*[\d,]+\.\d{2}",
+        r"Importe Total:?\s*\$?\s*[\d,]+\.\d{2}",
+        r"Total a Pagar:?\s*\$?\s*[\d,]+\.\d{2}"
+    ]
+
+    total = ""
+
+    for patron in patrones_total:
+        match = re.search(patron, text, re.IGNORECASE)
+        if match:
+            total = match.group(0).strip()
+            break
+
+
+    resultado = {
+        "numero": numero,
+        "fecha": fecha,
+        "proveedor": proveedor_final,
+        "total": total
+    }
+
+    return resultado
+
+
+# =========================================================
+# Validar duplicados
+# =========================================================
+
+def existe_registro(numero_factura):
+    registros = sheet.col_values(1)
+    return numero_factura in registros
+
+
+# =========================================================
+# Este bloque para insertar los datos en google sheets
+# =========================================================
+
+def insertar_sheet(data, archivo):
+
+    print("DATA A INSERTAR:")
+    print(data)
+
+    if not data["numero"]:
+        print(f"No se encontró número de factura en {archivo}")
+        log_error(f"No se encontró número de factura en {archivo}")
+        return
+
+    if existe_registro(data["numero"]):
+        print(f"Duplicado detectado: {data['numero']}")
+        return
+
+    print("Intentando guardar en Google Sheets...")
+
+    sheet.append_row([
+        data["numero"],
+        data["fecha"],
+        data["proveedor"],
+        data["total"],
+        archivo,
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ])
+
+    print(f"Insertado correctamente: {data['numero']}")
+
+
+# =========================================================
+# Este bloque es para la fecha
+# =========================================================
+
+def ordenar_sheet():
+
+    registros = sheet.get_all_records()
+
+    if not registros:
+        return
+
+    try:
+        registros_ordenados = sorted(
+            registros,
+            key=lambda x: parse(x["Fecha"]) if x["Fecha"] else datetime.max
+        )
+
+        sheet.clear()
+
+        sheet.append_row([
+            "Numero",
+            "Fecha",
+            "Proveedor",
+            "Total",
+            "Archivo",
+            "Timestamp"
+        ])
+
+        for r in registros_ordenados:
+            sheet.append_row(list(r.values()))
+
+        print("Sheet ordenado correctamente por fecha.")
+
+    except Exception as e:
+        print(f"Error al ordenar: {str(e)}")
+        log_error(f"Error al ordenar Sheet: {e}")
+
+
+# =========================================================
+# PROCESO PRINCIPAL
+# =========================================================
+
+def main():
+
+    for archivo in uploaded_files:
+
+        try:
+            print(f"\nProcesando: {archivo}")
+
+            texto = extract_text(archivo)
+
+            print("\n==============================")
+            print("TEXTO EXTRAÍDO")
+            print("==============================")
+            print(texto)
+            print("==============================\n")
+
+            if not texto.strip():
+                print("No se pudo extraer texto")
+                log_error(f"No se pudo extraer texto de {archivo}")
+                continue
+
+            data = extract_data(texto)
+
+            print("\n==============================")
+            print("DATOS EXTRAÍDOS")
+            print("==============================")
+            print(data)
+            print("==============================\n")
+
+            insertar_sheet(data, archivo)
+
+        except Exception as e:
+            print(f"Error procesando {archivo}: {str(e)}")
+            log_error(f"Error en {archivo}: {str(e)}")
+
+    ordenar_sheet()
+
+    print("\nProceso finalizado correctamente.")
+
+
+# =========================================================
+# Aqui ejecutamos
+# =========================================================
+
+main()
