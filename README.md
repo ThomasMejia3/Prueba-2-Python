@@ -26,3 +26,6 @@ Cargamos las facturas que queremos procesar
 
 Paso 6 Verficamos la insercion de datos con Google Sheet
 https://docs.google.com/spreadsheets/d/1-MJFX-gvOM5J3uf4ne2Vj5_ZNrl49zYjSCq_bvWZ4cc/edit?usp=sharing
+
+Google sheet
+<img width="1903" height="834" alt="image" src="https://github.com/user-attachments/assets/1b983ce4-9a20-48e4-91b1-4e4211e36f33" />
